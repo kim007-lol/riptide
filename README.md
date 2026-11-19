@@ -31,7 +31,10 @@ reads each case file and, per trophy:
    not ignored.
 3. **Anchors on the freshest read.** The median at the target is the last
    read's rate moved by the fitted slope over the log-time gap, so a level
-   shift from a refresh never drags the forecast with it.
+   shift from a refresh never drags the forecast with it. The gap is
+   capped at twice the log-time span the slope was fitted over, so a
+   trend fitted from two page states minutes apart can never be
+   extrapolated over days.
 4. **Shrinks noisy slopes.** Each slope is shrunk toward its tier's median
    slope and the global median (rare trophies borrow strength from their
    tier), damped as the rate approaches its ceiling, and clamped to
@@ -39,7 +42,7 @@ reads each case file and, per trophy:
    generous per-tier ceiling (platinum 5%, gold 45%, silver 65%,
    bronze 95%).
 5. **Calibrates the spread honestly.** Three logit-scale terms: a
-   random-walk term growing with the horizon (0.45 per root-day), a
+   random-walk term growing with the horizon (0.30 per root-day), a
    refresh-jump term that is large for short horizons and fades over days
    (launch night showed one refresh moving every rate at once), and a fit
    term from the trophy's own residual volatility, widened by how far the

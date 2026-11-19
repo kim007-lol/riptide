@@ -72,8 +72,17 @@ SLOPE_MIN, SLOPE_MAX = -0.5, 3.0
 TIER_CEILING = {"platinum": 5.0, "gold": 45.0, "silver": 65.0,
                 "bronze": 95.0}
 # Spread pieces, in logit units.
-TREND_SIGMA_PER_SQRT_DAY = 0.45   # random-walk growth with the horizon
-JUMP_SIGMA = 0.55                 # one Exophase refresh can move all rates
+TREND_SIGMA_PER_SQRT_DAY = 0.30   # random-walk growth with the horizon
+# (0.45 overshot on the final-like synthetic case: the 90% band covered
+# 98% of truths and every non-median level's pinball loss fell when the
+# trend term was narrowed; 0.30 still leaves ~0.64 logit of trend
+# spread at a 4.5-day horizon, so real launch-week drift stays covered)
+JUMP_SIGMA = 0.75                 # one Exophase refresh can move all rates
+# (0.55 was too narrow at short horizons: widening to 0.75 improved the
+# pinball loss on BOTH practice proxies, A 1.3632 -> 1.2356 and
+# B 0.2815 -> 0.2694, while leaving the 4.5-day synthetic case untouched,
+# since the jump term has decayed to ~0.03 by then; 0.90 and up start
+# worsening proxy B, so 0.75 is the value both proxies agree on)
 JUMP_DECAY_DAYS = 1.5             # ...but over days, jumps average out
 SIGMA_MIN, SIGMA_MAX = 0.15, 1.6
 
@@ -241,6 +250,15 @@ def forecast_case(case, name):
     if not window:
         window = points
 
+    # Log-time span of the fitted window.  A trend fitted over a tiny
+    # span (two page states minutes apart, e.g. one just before release
+    # and one just after, both at x ~= 0) must not be extrapolated over
+    # a long horizon: the least-squares slope through near-coincident x
+    # values explodes (division by an ~0 sxx) and, even clamped to
+    # SLOPE_MAX, would move the median by several logit units.  The
+    # span below caps that extrapolation (see the median step).
+    span_x = (window[-1]["x"] - window[0]["x"]) if len(window) >= 2 else 0.0
+
     # One global fit for the tracked-player count: dilution's other half.
     n_xs, n_ys, n_ws = [], [], []
     for p in window:
@@ -321,7 +339,16 @@ def forecast_case(case, name):
             median_rate = 99.99
             sigma = 0.15
         else:
-            med_logit = logit_of(entry["last_rate"]) + slope * (x_target - last_x)
+            # Never extrapolate a fitted trend further (in log-time)
+            # than twice the span it was fitted over: a slope from a
+            # near-zero span is not a trend, so the median then stays
+            # at the last read instead of running away.  Normal cases
+            # are untouched (final-like history spans ~0.9 in x with
+            # a ~1.0 gap, so the cap never binds there).
+            gap = x_target - last_x
+            if gap > 0.0:
+                gap = min(gap, 2.0 * span_x)
+            med_logit = logit_of(entry["last_rate"]) + slope * gap
             ceiling = TIER_CEILING.get(tier, 95.0)
             median_rate = min(inv_logit(med_logit), ceiling)
             median_rate = clamp_rate(median_rate)
